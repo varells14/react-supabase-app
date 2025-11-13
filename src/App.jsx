@@ -1,21 +1,40 @@
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "./supabase";
-import { Users, Search, MoreVertical, Smile, Paperclip, Mic, UserPlus, ArrowLeft } from "lucide-react";
+import {
+  Users,
+  Search,
+  MoreVertical,
+  Smile,
+  Paperclip,
+  Mic,
+  UserPlus,
+  ArrowLeft,
+  X,
+} from "lucide-react";
+import EmojiPicker from "emoji-picker-react";
 
 export default function App() {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [username, setUsername] = useState("");
-  const [members, setMembers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [showNameModal, setShowNameModal] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
-  const [newGroupDesc, setNewGroupDesc] = useState("");
   const [tempName, setTempName] = useState("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
   const bottomRef = useRef(null);
 
+  // emoji click
+  const onEmojiClick = (emojiData) => {
+    setText((prevText) => prevText + emojiData.emoji);
+    setShowEmojiPicker(false);
+  };
+
+  // ambil nama user
   useEffect(() => {
     const name = localStorage.getItem("username");
     if (!name) setShowNameModal(true);
@@ -25,84 +44,50 @@ export default function App() {
     }
   }, []);
 
-  // Realtime untuk grup baru yang dibuat
+  // realtime group
   useEffect(() => {
     if (!username) return;
-
-    const channel = supabase
-      .channel(`realtime:new-groups`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "groups",
-        },
-        (payload) => {
-          // Tambah grup baru di list tanpa reload
-          setGroups((prevGroups) => [
-            {
-              ...payload.new,
-              last_message: null,
-              last_sender: null,
-              last_time: null,
-            },
-            ...prevGroups,
-          ]);
-        }
-      )
+    const groupChannel = supabase
+      .channel("realtime:groups")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "groups" }, (payload) => {
+        setGroups((prev) => [payload.new, ...prev]);
+      })
       .subscribe();
-
-    return () => supabase.removeChannel(channel);
+    return () => supabase.removeChannel(groupChannel);
   }, [username]);
 
-  // Realtime untuk semua grup - update last message dan urutan
+  // realtime messages untuk update grup
   useEffect(() => {
     if (!username) return;
-
-    const channel = supabase
-      .channel(`realtime:all-messages`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-        },
-        (payload) => {
-          // Update groups list dengan last message terbaru
-          setGroups((prevGroups) => {
-            const updatedGroups = prevGroups.map((group) => {
-              if (group.id === payload.new.group_id) {
-                return {
-                  ...group,
-                  last_message: payload.new.text,
-                  last_sender: payload.new.sender,
-                  last_time: payload.new.created_at,
-                };
-              }
-              return group;
-            });
-
-            // Sort ulang: grup dengan chat terbaru di atas
-            return updatedGroups.sort((a, b) => {
-              const timeA = a.last_time || a.created_at;
-              const timeB = b.last_time || b.created_at;
-              return new Date(timeB) - new Date(timeA);
-            });
-          });
-        }
-      )
+    const msgChannel = supabase
+      .channel("realtime:all-messages")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+        setGroups((prev) =>
+          prev
+            .map((g) =>
+              g.id === payload.new.group_id
+                ? {
+                    ...g,
+                    last_message: payload.new.text || "[image]",
+                    last_sender: payload.new.sender,
+                    last_time: payload.new.created_at,
+                  }
+                : g
+            )
+            .sort(
+              (a, b) =>
+                new Date(b.last_time || b.created_at) - new Date(a.last_time || a.created_at)
+            )
+        );
+      })
       .subscribe();
-
-    return () => supabase.removeChannel(channel);
+    return () => supabase.removeChannel(msgChannel);
   }, [username]);
 
-  // Realtime untuk selected group - update messages
+  // realtime chat tiap grup
   useEffect(() => {
     if (selectedGroup) {
       fetchMessages();
-
       const channel = supabase
         .channel(`realtime:messages:${selectedGroup.id}`)
         .on(
@@ -113,84 +98,111 @@ export default function App() {
             table: "messages",
             filter: `group_id=eq.${selectedGroup.id}`,
           },
-          (payload) => {
-            setMessages((prev) => [...prev, payload.new]);
-            if (!members.includes(payload.new.sender)) {
-              setMembers((prevMembers) => [...new Set([...prevMembers, payload.new.sender])]);
-            }
-          }
+          (payload) => setMessages((prev) => [...prev, payload.new])
         )
         .subscribe();
-
       return () => supabase.removeChannel(channel);
     }
-  }, [selectedGroup, members]);
+  }, [selectedGroup]);
 
+  // auto scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // ambil semua grup
   const fetchGroups = async () => {
-    const { data: groupsData } = await supabase
+    const { data } = await supabase
       .from("groups")
       .select("*")
       .order("created_at", { ascending: false });
+    if (!data) return;
 
-    if (!groupsData) return;
-
-    const withLastMessage = await Promise.all(
-      groupsData.map(async (group) => {
-        const { data: lastMsg } = await supabase
+    const withLastMsg = await Promise.all(
+      data.map(async (g) => {
+        const { data: last } = await supabase
           .from("messages")
-          .select("sender, text, created_at")
-          .eq("group_id", group.id)
+          .select("sender,text,created_at")
+          .eq("group_id", g.id)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-
         return {
-          ...group,
-          last_message: lastMsg?.text || null,
-          last_sender: lastMsg?.sender || null,
-          last_time: lastMsg?.created_at || null,
+          ...g,
+          last_message: last?.text || null,
+          last_sender: last?.sender || null,
+          last_time: last?.created_at || null,
         };
       })
     );
-
-    // Sort berdasarkan last_time atau created_at
-    const sortedGroups = withLastMessage.sort((a, b) => {
-      const timeA = a.last_time || a.created_at;
-      const timeB = b.last_time || b.created_at;
-      return new Date(timeB) - new Date(timeA);
-    });
-
-    setGroups(sortedGroups);
+    setGroups(withLastMsg);
   };
 
+  // ambil pesan
   const fetchMessages = async () => {
-    if (!selectedGroup) return;
     const { data } = await supabase
       .from("messages")
       .select("*")
       .eq("group_id", selectedGroup.id)
       .order("created_at", { ascending: true });
-
     setMessages(data || []);
-    if (data?.length) {
-      setMembers([...new Set(data.map((m) => m.sender))]);
+  };
+
+  // kirim pesan (fix upload image)
+  const sendMessage = async () => {
+    if ((!text.trim() && !imageFile) || !selectedGroup) return;
+
+    let imageUrl = null;
+
+    try {
+      // upload image ke Supabase Storage
+      if (imageFile) {
+        const fileName = `${Date.now()}-${imageFile.name}`;
+        console.log("Uploading:", fileName);
+
+        const { error: uploadError } = await supabase.storage
+          .from("chat-image")
+          .upload(fileName, imageFile);
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from("chat-image")
+          .getPublicUrl(fileName);
+
+        imageUrl = urlData.publicUrl;
+        console.log("Image URL:", imageUrl);
+      }
+
+      // simpan ke tabel messages
+      const { error: insertError } = await supabase.from("messages").insert([
+        {
+          group_id: selectedGroup.id,
+          sender: username,
+          text: text.trim() || "(photo)",
+          image_url: imageUrl,
+        },
+      ]);
+
+      if (insertError) throw insertError;
+
+      console.log("✅ Pesan tersimpan ke database!");
+      setText("");
+      setPreviewImage(null);
+      setImageFile(null);
+    } catch (err) {
+      console.error("❌ Gagal kirim pesan:", err);
+      alert("Gagal kirim pesan: " + err.message);
     }
   };
 
-  const sendMessage = async () => {
-    if (!text.trim() || !selectedGroup) return;
-    await supabase.from("messages").insert([
-      {
-        group_id: selectedGroup.id,
-        sender: username,
-        text,
-      },
-    ]);
-    setText("");
+  // preview foto
+  const handleImageSelect = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => setPreviewImage(reader.result);
+    reader.readAsDataURL(file);
+    setImageFile(file);
   };
 
   const saveName = () => {
@@ -203,93 +215,63 @@ export default function App() {
 
   const createGroup = async () => {
     if (!newGroupName.trim()) return;
-
-    await supabase
-      .from("groups")
-      .insert([{ name: newGroupName, description: newGroupDesc || "No description" }]);
-
-    // Grup baru akan muncul otomatis via realtime
+    await supabase.from("groups").insert([{ name: newGroupName }]);
     setNewGroupName("");
-    setNewGroupDesc("");
     setShowCreateGroup(false);
   };
 
   return (
     <div className="flex h-[100dvh] bg-gray-100 text-gray-900">
-      {/* Left Panel */}
+      {/* Sidebar */}
       <div
         className={`${
           selectedGroup ? "hidden md:flex" : "flex"
-        } flex-col w-full md:w-1/3 lg:w-1/4 bg-white border-r border-gray-200`}
+        } flex-col w-full md:w-1/3 lg:w-1/4 bg-white border-r`}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 bg-emerald-600 text-white">
-          <h1 className="font-semibold text-lg">ChatApp</h1>
-          <button
-            onClick={() => setShowCreateGroup(true)}
-            className="p-2 hover:bg-white/20 rounded-full"
-          >
+        <div className="flex items-center justify-between p-4 bg-emerald-900 text-white">
+          <h1 className="font-semibold text-lg">Chatrell 💬</h1>
+          <button onClick={() => setShowCreateGroup(true)} className="p-2 hover:bg-white/20 rounded-full">
             <UserPlus className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Groups */}
         <div className="flex-1 overflow-y-auto">
-          {groups.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500 p-6">
-              <Users className="w-12 h-12 mb-3 opacity-40" />
-              <p>No groups yet. Create one to start chatting.</p>
-            </div>
-          ) : (
-            groups.map((group) => (
-              <div
-                key={group.id}
-                onClick={() => setSelectedGroup(group)}
-                className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50 border-b border-gray-100 transition"
-              >
-                <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
-                  <Users className="w-5 h-5 text-emerald-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{group.name}</p>
-                  <p className="text-sm text-gray-500 truncate">
-                    {group.last_message
-                      ? `${group.last_sender === username ? "You" : group.last_sender}: ${group.last_message}`
-                      : "No messages yet"}
-                  </p>
-                </div>
+          {groups.map((g) => (
+            <div
+              key={g.id}
+              onClick={() => setSelectedGroup(g)}
+              className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50 border-b"
+            >
+              <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
+                <Users className="w-5 h-5 text-emerald-600" />
               </div>
-            ))
-          )}
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{g.name}</p>
+                <p className="text-sm text-gray-500 truncate">
+                  {g.last_message
+                    ? `${g.last_sender === username ? "You" : g.last_sender}: ${g.last_message}`
+                    : "No messages yet"}
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Chat Panel */}
-      <div
-        className={`flex flex-col flex-1 bg-[#efeae2] ${
-          selectedGroup ? "flex" : "hidden md:flex"
-        }`}
-      >
+      {/* Chat area */}
+      <div className={`flex flex-col flex-1 bg-[#efeae2] ${selectedGroup ? "flex" : "hidden md:flex"}`}>
         {selectedGroup ? (
           <>
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 bg-emerald-600 text-white">
+            <div className="flex items-center justify-between px-4 py-3 bg-emerald-900 text-white">
               <div className="flex items-center gap-3">
-                <button
-                  className="md:hidden p-1 hover:bg-white/20 rounded-full"
-                  onClick={() => setSelectedGroup(null)}
-                >
+                <button onClick={() => setSelectedGroup(null)} className="md:hidden p-1 hover:bg-white/20 rounded-full">
                   <ArrowLeft className="w-5 h-5" />
                 </button>
                 <div className="w-9 h-9 bg-emerald-100 rounded-full flex items-center justify-center">
                   <Users className="w-5 h-5 text-emerald-700" />
                 </div>
-                <div>
-                  <p className="font-semibold">{selectedGroup.name}</p>
-                  <p className="text-xs text-white/80 truncate">
-                    {members.length > 0 ? members.join(", ") : "No members yet"}
-                  </p>
-                </div>
+                <p className="font-semibold">{selectedGroup.name}</p>
               </div>
               <div className="flex gap-3">
                 <Search className="w-5 h-5" />
@@ -319,13 +301,10 @@ export default function App() {
                           isSender ? "bg-[#d9fdd3]" : "bg-white"
                         }`}
                       >
-                        <p className="text-sm leading-relaxed">{m.text}</p>
-                        <p className="text-[10px] text-gray-500 text-right mt-1">
-                          {new Date(m.created_at).toLocaleTimeString("en-US", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
+                        {m.image_url && (
+                          <img src={m.image_url} alt="" className="max-w-[200px] rounded-lg mb-1" />
+                        )}
+                        {m.text && <p className="text-sm">{m.text}</p>}
                       </div>
                     </div>
                   </div>
@@ -334,36 +313,68 @@ export default function App() {
               <div ref={bottomRef}></div>
             </div>
 
-            {/* Input */}
-            <div className="p-3 bg-gray-100 border-t border-gray-300 flex items-center gap-2">
-              <button className="p-2 text-gray-600">
-                <Smile className="w-5 h-5" />
-              </button>
-              <div className="flex-1 bg-white rounded-full flex items-center px-3 py-2 shadow-sm">
-                <input
-                  type="text"
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                  placeholder="Type a message..."
-                  className="flex-1 text-sm focus:outline-none bg-transparent"
-                />
-                <button className="p-1 text-gray-500">
-                  <Paperclip className="w-4 h-4" />
+            {/* Input Area */}
+            <div className="p-3 bg-gray-100 border-t flex flex-col gap-2 relative">
+              {previewImage && (
+                <div className="relative w-fit">
+                  <img src={previewImage} alt="preview" className="max-h-32 rounded-lg shadow-md border" />
+                  <button
+                    onClick={() => {
+                      setPreviewImage(null);
+                      setImageFile(null);
+                    }}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="p-2 text-gray-600">
+                  <Smile className="w-5 h-5" />
+                </button>
+
+                {showEmojiPicker && (
+                  <div className="absolute bottom-14 left-10 z-50">
+                    <EmojiPicker onEmojiClick={onEmojiClick} />
+                  </div>
+                )}
+
+                <div className="flex-1 bg-white rounded-full flex items-center px-3 py-2 shadow-sm">
+                  <input
+                    type="text"
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+                    placeholder="Type a message..."
+                    className="flex-1 text-sm focus:outline-none bg-transparent"
+                  />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    id="file-upload"
+                    className="hidden"
+                    onChange={(e) => handleImageSelect(e.target.files[0])}
+                  />
+                  <label htmlFor="file-upload" className="p-1 text-gray-500 cursor-pointer">
+                    <Paperclip className="w-4 h-4" />
+                  </label>
+                </div>
+
+                <button
+                  onClick={sendMessage}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white p-3 rounded-full transition"
+                >
+                  {text.trim() || imageFile ? (
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                    </svg>
+                  ) : (
+                    <Mic className="w-5 h-5" />
+                  )}
                 </button>
               </div>
-              <button
-                onClick={sendMessage}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white p-3 rounded-full transition"
-              >
-                {text.trim() ? (
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-                  </svg>
-                ) : (
-                  <Mic className="w-5 h-5" />
-                )}
-              </button>
             </div>
           </>
         ) : (
@@ -374,68 +385,51 @@ export default function App() {
         )}
       </div>
 
-      {/* Name Modal */}
+      {/* Modal Nama */}
       {showNameModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-8 w-80 shadow-2xl">
-            <div className="flex flex-col items-center mb-6">
-              <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center mb-3">
-                <Users className="w-8 h-8 text-white" />
-              </div>
-              <h2 className="text-xl font-bold mb-1">Welcome 👋</h2>
-              <p className="text-sm text-gray-600 text-center">
-                Please enter your name to start chatting.
-              </p>
-            </div>
-
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-2xl w-80">
+            <h2 className="text-xl font-bold mb-4 text-center">Enter Your Name</h2>
             <input
               type="text"
               value={tempName}
               onChange={(e) => setTempName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && saveName()}
+              className="w-full px-4 py-3 border rounded-xl mb-3"
               placeholder="Your name..."
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:border-emerald-500 outline-none mb-4"
-              autoFocus
             />
-
             <button
               onClick={saveName}
-              className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-semibold transition"
+              className="w-full bg-emerald-500 text-white py-3 rounded-xl font-semibold"
             >
-              Start Chatting
+              Continue
             </button>
           </div>
         </div>
       )}
 
-      {/* Create Group Modal */}
+      {/* Modal Create Group */}
       {showCreateGroup && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-8 w-80 shadow-2xl">
-            <h2 className="text-xl font-semibold mb-4">Create New Group</h2>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-2xl w-80">
+            <h2 className="text-xl font-semibold mb-4">Create Group</h2>
             <input
               type="text"
               value={newGroupName}
               onChange={(e) => setNewGroupName(e.target.value)}
               placeholder="Group name..."
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl mb-3 focus:border-emerald-500 outline-none"
-            />
-            <textarea
-              value={newGroupDesc}
-              onChange={(e) => setNewGroupDesc(e.target.value)}
-              placeholder="Description (optional)..."
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl h-20 resize-none focus:border-emerald-500 outline-none mb-4"
+              className="w-full px-4 py-3 border rounded-xl mb-3"
             />
             <div className="flex gap-3">
               <button
                 onClick={() => setShowCreateGroup(false)}
-                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 rounded-xl"
+                className="flex-1 bg-gray-200 py-3 rounded-xl"
               >
                 Cancel
               </button>
               <button
                 onClick={createGroup}
-                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl"
+                className="flex-1 bg-emerald-500 text-white py-3 rounded-xl"
               >
                 Create
               </button>
