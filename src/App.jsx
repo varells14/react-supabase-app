@@ -69,12 +69,36 @@ export default function App() {
   }, [messages]);
 
   const fetchGroups = async () => {
-    const { data } = await supabase
-      .from("groups")
-      .select("*")
-      .order("created_at", { ascending: false });
-    setGroups(data || []);
-  };
+  const { data: groupsData } = await supabase
+    .from("groups")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (!groupsData) return;
+
+  // Ambil pesan terakhir per grup
+  const groupsWithLastMessage = await Promise.all(
+    groupsData.map(async (group) => {
+      const { data: lastMsg } = await supabase
+        .from("messages")
+        .select("sender, text, created_at")
+        .eq("group_id", group.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      return {
+        ...group,
+        last_message: lastMsg ? lastMsg.text : null,
+        last_sender: lastMsg ? lastMsg.sender : null,
+        last_time: lastMsg ? lastMsg.created_at : null,
+      };
+    })
+  );
+
+  setGroups(groupsWithLastMessage);
+};
+
 
   const fetchMessages = async () => {
     if (!selectedGroup) return;
@@ -270,7 +294,12 @@ export default function App() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-gray-900 truncate">{group.name}</div>
-                      <div className="text-sm text-gray-500 truncate">{group.description}</div>
+                      <div className="text-sm text-gray-500 truncate">
+  {group.last_message
+    ? `${group.last_sender === username ? "You" : group.last_sender}: ${group.last_message}`
+    : "Belum ada pesan"}
+</div>
+
                     </div>
                     <div className="text-xs text-gray-400">
                       {group.created_at ? new Date(group.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" }) : ""}
