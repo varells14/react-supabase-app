@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "./supabase";
-import { Users, Search, MoreVertical, Smile, Paperclip, Mic } from "lucide-react";
+import { Users, Search, MoreVertical, Smile, Paperclip, Mic,UserPlus  } from "lucide-react";
 
 export default function App() {
   const [messages, setMessages] = useState([]);
@@ -171,13 +171,13 @@ export default function App() {
       {showCreateGroup && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-[fadeIn_0.3s_ease-out]">
           <div className="bg-white rounded-3xl p-8 w-80 shadow-2xl transform animate-[scaleIn_0.3s_ease-out]">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Buat Grup Baru</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Create New Group</h2>
             
             <input
               type="text"
               value={newGroupName}
               onChange={(e) => setNewGroupName(e.target.value)}
-              placeholder="Nama grup..."
+              placeholder="Name group..."
               className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:outline-none text-gray-800 mb-3 transition"
               autoFocus
             />
@@ -185,7 +185,7 @@ export default function App() {
             <textarea
               value={newGroupDesc}
               onChange={(e) => setNewGroupDesc(e.target.value)}
-              placeholder="Deskripsi (opsional)..."
+              placeholder="Description (opsional)..."
               className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:outline-none text-gray-800 mb-4 transition resize-none h-20"
             />
             
@@ -198,13 +198,13 @@ export default function App() {
                 }}
                 className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 rounded-xl font-semibold transition active:scale-95"
               >
-                Batal
+                Cancel
               </button>
               <button
                 onClick={createGroup}
                 className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white py-3 rounded-xl font-semibold transition shadow-lg active:scale-95"
               >
-                Buat
+                Create
               </button>
             </div>
           </div>
@@ -228,18 +228,11 @@ export default function App() {
 
         {/* Status Bar */}
         <div className="bg-[#075e54] text-white pt-7 sm:pt-8 pb-2 px-4 sm:px-5 text-[10px] sm:text-xs flex justify-between items-center flex-shrink-0">
-          <div className="font-semibold">9:41</div>
+          <div className="font-semibold"></div>
           <div className="flex gap-1.5 items-center">
-            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
-            </svg>
-            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
-            </svg>
-            <div className="w-5 h-3 border-2 border-white rounded-sm flex items-center justify-center relative">
-              <div className="w-2.5 h-1.5 bg-white rounded-sm"></div>
-              <div className="absolute -right-0.5 top-1/2 -translate-y-1/2 w-0.5 h-1 bg-white rounded-r"></div>
-            </div>
+             
+            
+            
           </div>
         </div>
 
@@ -249,12 +242,12 @@ export default function App() {
             {/* Header */}
             <div className="bg-[#075e54] text-white py-4 px-4 flex items-center justify-between shadow-lg flex-shrink-0">
               <h1 className="text-xl font-semibold">WhatsApp</h1>
-              <button 
-                onClick={() => setShowCreateGroup(true)}
-                className="bg-white/20 hover:bg-white/30 px-4 py-1.5 rounded-full text-sm font-medium transition active:scale-95"
-              >
-                + Grup Baru
-              </button>
+              <button
+  onClick={() => setShowCreateGroup(true)}
+  className="bg-white/20 hover:bg-white/30 p-2 rounded-full text-sm font-medium transition active:scale-95 flex items-center justify-center"
+>
+  <UserPlus className="w-5 h-5" />
+</button>
             </div>
 
             {/* Groups List */}
@@ -262,7 +255,8 @@ export default function App() {
               {groups.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500 px-8">
                   <Users className="w-16 h-16 mb-4 opacity-30" />
-                  <p className="text-center text-sm">Belum ada grup. Buat grup pertamamu!</p>
+                  <p className="text-center text-sm">No groups yet. Create your first group!</p>
+
                 </div>
               ) : (
                 groups.map((group) => (
