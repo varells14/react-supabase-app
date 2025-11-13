@@ -257,11 +257,20 @@ export default function App() {
                   {g.name}
                   {g.pin_chat && <span className="text-xs text-gray-400 ml-1">(🔒)</span>}
                 </p>
-                <p className="text-sm text-gray-500 truncate">
-                  {g.last_message
-                    ? `${g.last_sender === username ? "You" : g.last_sender}: ${g.last_message}`
-                    : "No messages yet"}
-                </p>
+                <p
+  className={`text-sm text-gray-500 truncate relative ${
+    g.pin_chat ? "blur-[4px] select-none" : ""
+  }`}
+>
+  {g.last_message
+    ? `${g.last_sender === username ? "You" : g.last_sender}: ${g.last_message}`
+    : "No messages yet"}
+
+  {g.pin_chat && (
+    <span className="absolute inset-0 backdrop-blur-sm bg-white/10 rounded-lg"></span>
+  )}
+</p>
+
               </div>
             </div>
           ))}
