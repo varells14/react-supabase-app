@@ -22,19 +22,21 @@ export default function App() {
   const [showNameModal, setShowNameModal] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupPin, setNewGroupPin] = useState(""); // ➕ NEW
+  const [showPinModal, setShowPinModal] = useState(false); // ➕ NEW
+  const [inputPin, setInputPin] = useState(""); // ➕ NEW
+  const [groupToJoin, setGroupToJoin] = useState(null); // ➕ NEW
   const [tempName, setTempName] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
   const [imageFile, setImageFile] = useState(null);
   const bottomRef = useRef(null);
 
-  // emoji click
   const onEmojiClick = (emojiData) => {
     setText((prevText) => prevText + emojiData.emoji);
     setShowEmojiPicker(false);
   };
 
-  // ambil nama user
   useEffect(() => {
     const name = localStorage.getItem("username");
     if (!name) setShowNameModal(true);
@@ -44,7 +46,6 @@ export default function App() {
     }
   }, []);
 
-  // realtime group
   useEffect(() => {
     if (!username) return;
     const groupChannel = supabase
@@ -56,7 +57,6 @@ export default function App() {
     return () => supabase.removeChannel(groupChannel);
   }, [username]);
 
-  // realtime messages untuk update grup
   useEffect(() => {
     if (!username) return;
     const msgChannel = supabase
@@ -84,7 +84,6 @@ export default function App() {
     return () => supabase.removeChannel(msgChannel);
   }, [username]);
 
-  // realtime chat tiap grup
   useEffect(() => {
     if (selectedGroup) {
       fetchMessages();
@@ -105,12 +104,10 @@ export default function App() {
     }
   }, [selectedGroup]);
 
-  // auto scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ambil semua grup
   const fetchGroups = async () => {
     const { data } = await supabase
       .from("groups")
@@ -138,7 +135,6 @@ export default function App() {
     setGroups(withLastMsg);
   };
 
-  // ambil pesan
   const fetchMessages = async () => {
     const { data } = await supabase
       .from("messages")
@@ -148,33 +144,24 @@ export default function App() {
     setMessages(data || []);
   };
 
-  // kirim pesan (fix upload image)
   const sendMessage = async () => {
     if ((!text.trim() && !imageFile) || !selectedGroup) return;
 
     let imageUrl = null;
-
     try {
-      // upload image ke Supabase Storage
       if (imageFile) {
         const fileName = `${Date.now()}-${imageFile.name}`;
-        console.log("Uploading:", fileName);
-
         const { error: uploadError } = await supabase.storage
           .from("chat-image")
           .upload(fileName, imageFile);
-
         if (uploadError) throw uploadError;
 
         const { data: urlData } = supabase.storage
           .from("chat-image")
           .getPublicUrl(fileName);
-
         imageUrl = urlData.publicUrl;
-        console.log("Image URL:", imageUrl);
       }
 
-      // simpan ke tabel messages
       const { error: insertError } = await supabase.from("messages").insert([
         {
           group_id: selectedGroup.id,
@@ -183,20 +170,16 @@ export default function App() {
           image_url: imageUrl,
         },
       ]);
-
       if (insertError) throw insertError;
 
-      console.log("✅ Pesan tersimpan ke database!");
       setText("");
       setPreviewImage(null);
       setImageFile(null);
     } catch (err) {
-      console.error("❌ Gagal kirim pesan:", err);
       alert("Gagal kirim pesan: " + err.message);
     }
   };
 
-  // preview foto
   const handleImageSelect = (file) => {
     if (!file) return;
     const reader = new FileReader();
@@ -213,11 +196,35 @@ export default function App() {
     fetchGroups();
   };
 
+  // ➕ BUAT GRUP DENGAN PIN OPSIONAL
   const createGroup = async () => {
     if (!newGroupName.trim()) return;
-    await supabase.from("groups").insert([{ name: newGroupName }]);
+    await supabase.from("groups").insert([{ name: newGroupName, pin_chat: newGroupPin || null }]);
     setNewGroupName("");
+    setNewGroupPin("");
     setShowCreateGroup(false);
+  };
+
+  // ➕ LOGIC SAAT KLIK GRUP
+  const handleSelectGroup = (group) => {
+    if (group.pin_chat) {
+      setGroupToJoin(group);
+      setShowPinModal(true);
+    } else {
+      setSelectedGroup(group);
+    }
+  };
+
+  // ➕ CEK PIN
+  const verifyPin = () => {
+    if (inputPin === groupToJoin.pin_chat) {
+      setSelectedGroup(groupToJoin);
+      setShowPinModal(false);
+      setInputPin("");
+      setGroupToJoin(null);
+    } else {
+      alert("PIN salah!");
+    }
   };
 
   return (
@@ -239,14 +246,17 @@ export default function App() {
           {groups.map((g) => (
             <div
               key={g.id}
-              onClick={() => setSelectedGroup(g)}
+              onClick={() => handleSelectGroup(g)} // 🔄 GANTI INI
               className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50 border-b"
             >
               <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
                 <Users className="w-5 h-5 text-emerald-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{g.name}</p>
+                <p className="font-medium truncate">
+                  {g.name}
+                  {g.pin_chat && <span className="text-xs text-gray-400 ml-1">(🔒)</span>}
+                </p>
                 <p className="text-sm text-gray-500 truncate">
                   {g.last_message
                     ? `${g.last_sender === username ? "You" : g.last_sender}: ${g.last_message}`
@@ -408,6 +418,30 @@ export default function App() {
         </div>
       )}
 
+      {/* Modal Input PIN */}
+      {showPinModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-2xl w-80 text-center">
+            <h2 className="text-lg font-semibold mb-3">Masukkan PIN Grup</h2>
+            <input
+              type="password"
+              value={inputPin}
+              onChange={(e) => setInputPin(e.target.value)}
+              placeholder="PIN..."
+              className="w-full border px-3 py-2 rounded-lg mb-3 text-center"
+            />
+            <div className="flex gap-3">
+              <button onClick={() => setShowPinModal(false)} className="flex-1 bg-gray-200 py-2 rounded-lg">
+                Batal
+              </button>
+              <button onClick={verifyPin} className="flex-1 bg-emerald-500 text-white py-2 rounded-lg">
+                Masuk
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Create Group */}
       {showCreateGroup && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
@@ -419,6 +453,13 @@ export default function App() {
               onChange={(e) => setNewGroupName(e.target.value)}
               placeholder="Group name..."
               className="w-full px-4 py-3 border rounded-xl mb-3"
+            />
+            <input
+              type="password"
+              value={newGroupPin}
+              onChange={(e) => setNewGroupPin(e.target.value)}
+              placeholder="PIN (optional)"
+              className="w-full px-4 py-3 border rounded-xl mb-4"
             />
             <div className="flex gap-3">
               <button
